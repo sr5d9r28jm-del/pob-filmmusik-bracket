@@ -236,8 +236,8 @@ button{font-family:var(--font-b);cursor:pointer}
 <!-- LOGIN -->
 <div id="screen-login">
   <div class="logo">🎬</div>
-  <h1>Filmmusik Bracket</h1>
-  <p>Welche Filmmusik unseres Orchesters verdient den Titel? Gib deinen Namen ein und stimme ab.</p>
+  <h1>Vorbereitung für unsere zehnte Jubiläumsspielzeit</h1>
+  <p>Welche Filmmusik fandest du in den letzten Jahren am Besten? Unsere gespielten Stücke treten in einem vs-Format gegeneinander an. Die Gewinner greifen wir dann in unserem Konzert der 10. Spielzeit wieder auf.</p>
   <input id="name-input" type="text" placeholder="Dein Name…" maxlength="40" autocomplete="off"/>
   <button id="btn-start">Zur Abstimmung →</button>
 </div>
@@ -316,7 +316,25 @@ button{font-family:var(--font-b);cursor:pointer}
   </div>
 </div>
 
-<script>
+<script type="module">
+// ══════════════════════════════════════════════════
+// FIREBASE
+// ══════════════════════════════════════════════════
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAOYtuX-sfgXGdYgrLjLV5MLVRS0Tsziyk",
+  authDomain: "filmmusik-auswahl.firebaseapp.com",
+  databaseURL: "https://filmmusik-auswahl-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "filmmusik-auswahl",
+  storageBucket: "filmmusik-auswahl.firebasestorage.app",
+  messagingSenderId: "270396264564",
+  appId: "1:270396264564:web:6b428cc9ba2e7f4ca34121"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
+
 // ══════════════════════════════════════════════════
 // KONFIGURATION
 // ══════════════════════════════════════════════════
@@ -324,34 +342,34 @@ const TMDB_KEY = '7694829fecb8fa5a4d3c328e0251374b';
 
 const FILMS = [
   // Seeds 1–8: direkt qualifiziert (überspringen Qualifikationsrunde)
-  { name:'Indiana Jones',                            seed:1,  tmdb:'Raiders of the Lost Ark',                                spotify:'https://open.spotify.com/embed/track/60ZYLVPmSNY9r0Uquaivvs' },
+  { name:'Indiana Jones',                            seed:1,  tmdb:'Raiders of the Lost Ark',                                spotify:'https://open.spotify.com/embed/track/5QMytOF6piEYwZDCHbjxTf' },
   { name:'Schindlers Liste',                         seed:2,  tmdb:"Schindler's List",                                      spotify:'https://open.spotify.com/embed/track/42gZM6AQ9BDMaTyTmMDVlN' },
-  { name:'James Bond',                               seed:3,  tmdb:'GoldenEye',                                             spotify:'' },
-  { name:'Jurassic Park',                            seed:4,  tmdb:'Jurassic Park',                                         spotify:'' },
-  { name:'Game of Thrones',                          seed:5,  tmdb:'Game of Thrones',                                       spotify:'' },
-  { name:'E.T.',                                     seed:6,  tmdb:'E.T. the Extra-Terrestrial',                            spotify:'' },
-  { name:'Chariots of Fire',                         seed:7,  tmdb:'Chariots of Fire',                                      spotify:'' },
-  { name:'Phantom der Oper',                         seed:8,  tmdb:'The Phantom of the Opera',                              spotify:'' },
+  { name:'James Bond',                               seed:3,  tmdb:'GoldenEye',                                             spotify:'https://open.spotify.com/embed/track/2VSFOKsNSH9dBQ8BIZ8o2m' },
+  { name:'Jurassic Park',                            seed:4,  tmdb:'Jurassic Park',                                         spotify:'https://open.spotify.com/embed/track/2TZbQZXOuR8osP2AK8yYMN' },
+  { name:'Game of Thrones',                          seed:5,  tmdb:'Game of Thrones',                                       spotify:'https://open.spotify.com/embed/track/2q6fxAvSpqXR4jx9Ne7RGz' },
+  { name:'E.T.',                                     seed:6,  tmdb:'E.T. the Extra-Terrestrial',                            spotify:'https://open.spotify.com/embed/track/4dREolVHSD0OM3S3GZBq3A' },
+  { name:'Chariots of Fire',                         seed:7,  tmdb:'Chariots of Fire',                                      spotify:'https://open.spotify.com/embed/track/6GxhckZeqoWNF9n9XS91HS' },
+  { name:'Phantom der Oper',                         seed:8,  tmdb:'The Phantom of the Opera',                              spotify:'https://open.spotify.com/embed/track/7o3DV1szMH5Fd38f1QwgPO' },
 
   // Seeds 9–16: Qualifikation – Franchise-Duelle zuerst
   { name:'Fluch der Karibik – Teil 1',               seed:9,  tmdb:'Pirates of the Caribbean: The Curse of the Black Pearl',spotify:'https://open.spotify.com/embed/track/067Qz6nAyHu3oX22dQpAjs', franchise:'Fluch der Karibik' },
   { name:'Fluch der Karibik – Teil 3',               seed:10, tmdb:"Pirates of the Caribbean: At World's End",              spotify:'https://open.spotify.com/embed/track/6N10tJfiQqm4wn6KM70aoT', franchise:'Fluch der Karibik' },
-  { name:'Herr der Ringe – Die Rückkehr des Königs', seed:11, tmdb:'The Lord of the Rings: The Return of the King',         spotify:'', franchise:'Mittelerde' },
-  { name:'The Hobbit',                               seed:12, tmdb:'The Hobbit: An Unexpected Journey',                     spotify:'', franchise:'Mittelerde' },
-  { name:'Harry Potter und der Orden des Phönix',    seed:13, tmdb:'Harry Potter and the Order of the Phoenix',             spotify:'', franchise:'Harry Potter' },
-  { name:'Harry Potter Symphonic Suite',             seed:14, tmdb:"Harry Potter and the Philosopher's Stone",              spotify:'', franchise:'Harry Potter' },
-  { name:'Star Wars Episode 4',                      seed:15, tmdb:'Star Wars: A New Hope',                                 spotify:'', franchise:'Star Wars' },
-  { name:'Star Wars Through The Years',              seed:16, tmdb:'Star Wars',                                             spotify:'', franchise:'Star Wars' },
+  { name:'Herr der Ringe – Die Rückkehr des Königs', seed:11, tmdb:'The Lord of the Rings: The Return of the King',         spotify:'https://open.spotify.com/embed/track/75UQxtu6gUPT5DdipRTM2s', franchise:'Mittelerde' },
+  { name:'The Hobbit',                               seed:12, tmdb:'The Hobbit: An Unexpected Journey',                     spotify:'https://open.spotify.com/embed/track/4ZcGNJQU3lNpBgxoWcggMm', franchise:'Mittelerde' },
+  { name:'Harry Potter und der Orden des Phönix',    seed:13, tmdb:'Harry Potter and the Order of the Phoenix',             spotify:'https://open.spotify.com/embed/track/5XbDL9Otyn3C9vAY3awneT', franchise:'Harry Potter' },
+  { name:'Harry Potter Symphonic Suite',             seed:14, tmdb:"Harry Potter and the Philosopher's Stone",              spotify:'https://open.spotify.com/embed/track/1n8NKQRg8LVHy7oUhUgbFF', franchise:'Harry Potter' },
+  { name:'Star Wars Episode 4',                      seed:15, tmdb:'Star Wars: A New Hope',                                 spotify:'https://open.spotify.com/embed/track/2wi6V9TPFAqciBWQ2FmD7o', franchise:'Star Wars' },
+  { name:'Star Wars Through The Years',              seed:16, tmdb:'Star Wars',                                             spotify:'https://open.spotify.com/embed/track/420y9qWviZ4cdneynQWSKr', franchise:'Star Wars' },
 
   // Seeds 17–24: restliche Qualifikationsspiele
-  { name:'Frozen',                                   seed:17, tmdb:'Frozen',                                                spotify:'' },
-  { name:'Charlie und die Schokoladenfabrik',        seed:18, tmdb:'Charlie and the Chocolate Factory',                     spotify:'' },
-  { name:'Go West',                                  seed:19, tmdb:'Go West',                                               spotify:'' },
-  { name:'Libertango',                               seed:20, tmdb:'Libertango',                                            spotify:'' },
-  { name:'Into the Storm',                           seed:21, tmdb:'Into the Storm',                                        spotify:'' },
-  { name:'Downton Abbey',                            seed:22, tmdb:'Downton Abbey',                                         spotify:'' },
-  { name:'Miss Marple',                              seed:23, tmdb:'Miss Marple',                                           spotify:'' },
-  { name:'Star Trek Through The Years',              seed:24, tmdb:'Star Trek',                                             spotify:'' },
+  { name:'Frozen',                                   seed:17, tmdb:'Frozen',                                                spotify:'https://open.spotify.com/embed/track/0qcr5FMsEO85NAQjrlDRKo' },
+  { name:'Charlie und die Schokoladenfabrik',        seed:18, tmdb:'Charlie and the Chocolate Factory',                     spotify:'https://open.spotify.com/embed/track/36Or2BETVOkRQpw39sZHI4' },
+  { name:'Go West',                                  seed:19, tmdb:'Go West',                                               spotify:'https://open.spotify.com/embed/track/3UzepgZDbql2Owju6TprEH' },
+  { name:'Libertango',                               seed:20, tmdb:'Libertango',                                            spotify:'https://open.spotify.com/embed/track/1IIydYQ6LTzZpgLXYpNlNy' },
+  { name:'Into the Storm',                           seed:21, tmdb:'Into the Storm',                                        spotify:'https://open.spotify.com/embed/track/5frDrqF3Re0cziacUzeE5w' },
+  { name:'Downton Abbey',                            seed:22, tmdb:'Downton Abbey',                                         spotify:'https://open.spotify.com/embed/track/1dsqTdFXepiboy2nkhPJ2p' },
+  { name:'Miss Marple',                              seed:23, tmdb:'Miss Marple',                                           spotify:'https://open.spotify.com/embed/track/7ecirY50js1gg1ZDD2aO5q' },
+  { name:'Star Trek Through The Years',              seed:24, tmdb:'Star Trek',                                             spotify:'https://open.spotify.com/embed/track/6fVX8mF9ZqS1V8G2ZFCbLQ' },
 ];
 
 const ROUND_NAMES = ['Qualifikation','Runde 2','Viertelfinale','Halbfinale','Finale'];
@@ -618,11 +636,16 @@ function buildPhotoMatch(match,isFinal) {
 }
 
 // ══════════════════════════════════════════════════
-// ANALYSIS
+// ANALYSIS (Firebase)
 // ══════════════════════════════════════════════════
-function renderAnalysis() {
-  const voters=JSON.parse(localStorage.getItem('bracket_voters')||'[]');
+async function renderAnalysis() {
   const el=document.getElementById('analysis-content');
+  el.innerHTML='<div class="no-data">Daten werden geladen…</div>';
+  let voters=[];
+  try{
+    const snap=await get(ref(db,'votes'));
+    if(snap.exists()) voters=Object.values(snap.val());
+  }catch(e){ el.innerHTML='<div class="no-data">Fehler beim Laden der Daten.</div>'; return; }
   if(!voters.length){
     el.innerHTML='<div class="no-data">Noch keine Daten – stimmt mindestens bis zum Halbfinale ab.</div>';
     return;
@@ -661,7 +684,7 @@ function switchView(view,btn){
 }
 
 // ══════════════════════════════════════════════════
-// TMDB + STORAGE
+// TMDB + FIREBASE STORAGE
 // ══════════════════════════════════════════════════
 async function fetchPoster(film){
   if(S.posterCache[film.name]) return S.posterCache[film.name];
@@ -684,14 +707,12 @@ function getTop4(){
   return [...names];
 }
 
-function saveSnapshot(){
+async function saveSnapshot(){
   const top4=getTop4(); if(!top4.length) return;
   const champ=S.rounds[4][0]?.winner?.name||null;
-  const voters=JSON.parse(localStorage.getItem('bracket_voters')||'[]');
-  const idx=voters.findIndex(v=>v.name===S.user);
-  const entry={name:S.user,top4,champ,ts:Date.now()};
-  if(idx>=0) voters[idx]=entry; else voters.push(entry);
-  localStorage.setItem('bracket_voters',JSON.stringify(voters));
+  const key=S.user.replace(/[.#$[\]/]/g,'_');
+  try{ await set(ref(db,'votes/'+key),{name:S.user,top4,champ,ts:Date.now()}); }
+  catch(e){ console.error('Firebase write error:',e); }
 }
 
 function show(el){(typeof el==='string'?document.getElementById(el):el)?.classList.remove('hidden')}
