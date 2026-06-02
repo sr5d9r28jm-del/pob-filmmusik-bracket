@@ -109,8 +109,34 @@ button{font-family:var(--font-b);cursor:pointer}
 .duel-info{padding:1.25rem;flex:1;display:flex;flex-direction:column;gap:10px}
 .duel-title{font-family:var(--font-d);font-size:17px;font-weight:400;color:var(--text);line-height:1.3}
 .duel-seed{font-size:11px;color:var(--text-muted)}
-.spotify-wrap iframe{width:100%;height:80px;border:none;border-radius:var(--r);display:block}
 .spotify-hint{font-size:11px;color:var(--text-dim);padding:6px 0}
+.preview-btn{
+  width:100%;padding:9px;font-size:13px;font-weight:500;
+  background:var(--blue-dim);color:var(--blue);
+  border:1px solid rgba(58,110,168,.25);border-radius:var(--r);
+  transition:background .15s;margin-top:4px;
+}
+.preview-btn:hover{background:rgba(58,110,168,.18)}
+
+/* Spotify overlay */
+#spotify-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
+  z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(4px);
+}
+#spotify-overlay.open{display:flex}
+#spotify-modal{
+  background:var(--surface);border:1px solid var(--border-md);border-radius:var(--rl);
+  padding:1.5rem;width:340px;max-width:92%;box-shadow:var(--shadow-md);
+  display:flex;flex-direction:column;gap:12px;
+}
+#spotify-modal-title{font-family:var(--font-d);font-size:17px;color:var(--text)}
+#spotify-modal-player iframe{width:100%;height:80px;border:none;border-radius:var(--r);display:block}
+#spotify-modal button{
+  padding:9px;font-size:13px;font-family:var(--font-b);
+  background:var(--surface2);color:var(--text-muted);
+  border:1px solid var(--border);border-radius:var(--r);transition:background .15s;
+}
+#spotify-modal button:hover{background:var(--surface3)}
 .vs-divider{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 1rem;flex-shrink:0}
 .vs-text{font-family:var(--font-d);font-style:italic;font-size:22px;color:var(--text-dim)}
 .duel-actions{margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:10px}
@@ -268,7 +294,7 @@ button{font-family:var(--font-b);cursor:pointer}
       <div class="duel-info">
         <div class="duel-title" id="title-a"></div>
         <div class="duel-seed" id="seed-a"></div>
-        <div class="spotify-wrap" id="spotify-a"></div>
+        <button class="preview-btn" id="preview-btn-a" onclick="openPreview(event,'a')">🎵 Vorschau anhören</button>
       </div>
     </div>
     <div class="vs-divider"><div class="vs-text">vs</div></div>
@@ -281,13 +307,22 @@ button{font-family:var(--font-b);cursor:pointer}
       <div class="duel-info">
         <div class="duel-title" id="title-b"></div>
         <div class="duel-seed" id="seed-b"></div>
-        <div class="spotify-wrap" id="spotify-b"></div>
+        <button class="preview-btn" id="preview-btn-b" onclick="openPreview(event,'b')">🎵 Vorschau anhören</button>
       </div>
     </div>
   </div>
   <div class="duel-actions">
     <button id="btn-confirm" onclick="confirmVote()">Auswahl bestätigen →</button>
-    <div class="duel-hint" id="duel-hint">Klicke auf ein Stück, um es zu wählen</div>
+    <div class="duel-hint" id="duel-hint">Klicke auf eine Karte, um sie zu wählen</div>
+  </div>
+</div>
+
+<!-- SPOTIFY OVERLAY -->
+<div id="spotify-overlay" onclick="closePreview()">
+  <div id="spotify-modal" onclick="event.stopPropagation()">
+    <div id="spotify-modal-title"></div>
+    <div id="spotify-modal-player"></div>
+    <button onclick="closePreview()">Schließen</button>
   </div>
 </div>
 
@@ -468,12 +503,13 @@ function loadCard(side, film) {
     });
   } else { ph.textContent='Ausstehend'; }
 
-  const sp=document.getElementById('spotify-'+side);
+  const pb=document.getElementById('preview-btn-'+side);
   if(film.spotify&&film.spotify.trim()){
-    const u=film.spotify.includes('/embed/')?film.spotify:film.spotify.replace('open.spotify.com/','open.spotify.com/embed/');
-    sp.innerHTML=`<iframe src="${u}" allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture" loading="lazy"></iframe>`;
+    pb.style.display='block';
+    pb.dataset.spotify=film.spotify;
+    pb.dataset.title=film.name;
   } else {
-    sp.innerHTML=`<div class="spotify-hint">🎵 Kein Spotify-Link hinterlegt</div>`;
+    pb.style.display='none';
   }
 }
 
@@ -715,8 +751,34 @@ async function saveSnapshot(){
   catch(e){ console.error('Firebase write error:',e); }
 }
 
+function openPreview(e, side) {
+  e.stopPropagation();
+  const btn=document.getElementById('preview-btn-'+side);
+  const spotify=btn.dataset.spotify;
+  const title=btn.dataset.title;
+  if(!spotify) return;
+  const u=spotify.includes('/embed/')?spotify:spotify.replace('open.spotify.com/','open.spotify.com/embed/');
+  document.getElementById('spotify-modal-title').textContent=title;
+  document.getElementById('spotify-modal-player').innerHTML=
+    `<iframe src="${u}" allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture" loading="lazy"></iframe>`;
+  document.getElementById('spotify-overlay').classList.add('open');
+}
+
+function closePreview() {
+  document.getElementById('spotify-overlay').classList.remove('open');
+  document.getElementById('spotify-modal-player').innerHTML='';
+}
+
 function show(el){(typeof el==='string'?document.getElementById(el):el)?.classList.remove('hidden')}
 function hide(el){(typeof el==='string'?document.getElementById(el):el)?.classList.add('hidden')}
+
+// ── Expose functions to global scope (required for onclick with type="module") ──
+window.selectSide     = selectSide;
+window.confirmVote    = confirmVote;
+window.continueToNext = continueToNext;
+window.openPreview    = openPreview;
+window.closePreview   = closePreview;
+window.switchView     = switchView;
 
 document.getElementById('btn-start').onclick=()=>{
   const name=document.getElementById('name-input').value.trim();
