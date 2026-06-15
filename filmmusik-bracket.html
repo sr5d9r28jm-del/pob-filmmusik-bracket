@@ -254,18 +254,31 @@ button{font-family:var(--font-b);cursor:pointer}
 .tag{font-size:11px;padding:3px 9px;border-radius:20px}
 .tag.top4{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(58,110,168,.2)}
 .tag.champ{background:var(--gold-dim);color:var(--gold);border:1px solid rgba(154,122,48,.2)}
-/* ── PAUSE SCREEN ── */
-#screen-pause{
+/* ── PAUSE SCREENS ── */
+#screen-pause-r1, #screen-pause{
   max-width:700px;margin:0 auto;padding:2rem 1rem 4rem;
 }
 .pause-hero{
   text-align:center;padding:2.5rem 1rem 2rem;
   background:linear-gradient(135deg,rgba(58,110,168,.06),rgba(58,110,168,.02));
-  border:1px solid rgba(58,110,168,.15);border-radius:var(--rl);margin-bottom:2rem;
+  border:1px solid rgba(58,110,168,.15);border-radius:var(--rl);margin-bottom:1.5rem;
 }
 .pause-icon{font-size:48px;line-height:1;margin-bottom:1rem}
 .pause-hero h2{font-family:var(--font-d);font-size:26px;font-weight:400;color:var(--text);margin-bottom:8px}
 .pause-hero p{font-size:14px;color:var(--text-muted);max-width:440px;margin:0 auto;line-height:1.7}
+
+.countdown-box{
+  text-align:center;padding:1.5rem;margin-bottom:1.5rem;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);
+  box-shadow:var(--shadow);
+}
+.countdown-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:10px}
+.countdown-digits{
+  font-family:var(--font-d);font-size:42px;font-weight:400;color:var(--blue);
+  letter-spacing:.04em;line-height:1;
+}
+.countdown-done{font-size:18px;color:var(--green);font-family:var(--font-d)}
+.countdown-sub{font-size:12px;color:var(--text-muted);margin-top:6px}
 
 .no-data{color:var(--text-muted);font-size:14px;padding:3rem;text-align:center}
 </style>
@@ -339,8 +352,21 @@ button{font-family:var(--font-b);cursor:pointer}
   </div>
 </div>
 
-<!-- PAUSE SCREEN -->
-<div id="screen-pause" class="hidden">
+<!-- PAUSE R1 -->
+<div id="screen-pause-r1" class="hidden">
+  <div class="pause-hero">
+    <div class="pause-icon">🗳️</div>
+    <h2>Qualifikationsrunde abgeschlossen</h2>
+    <p>Alle Stimmen werden gesammelt. Runde 2 startet am 18. Juni – bis dahin können alle abstimmen.</p>
+  </div>
+  <div class="countdown-box">
+    <div class="countdown-label">Verbleibende Abstimmungszeit</div>
+    <div id="countdown-display" class="countdown-digits">--:--:--</div>
+  </div>
+  <div id="pause-r1-analysis"></div>
+</div>
+
+<!-- PAUSE R2 -->
   <div class="pause-hero">
     <div class="pause-icon">⏸</div>
     <h2>Runde 2 abgeschlossen</h2>
@@ -554,8 +580,8 @@ function confirmVote() {
   match.winner=match[S.selectedSide];
   propagate();
 
-  // Save after every R2 match so pause screen reflects partial progress too
-  if(S.currentRound >= 1) saveSnapshot();
+  // Snapshot nach jedem Match speichern
+  saveSnapshot();
 
   const next=S.currentMatch+1;
   if(next<S.rounds[S.currentRound].length){ S.currentMatch=next; showDuel(); }
@@ -576,11 +602,20 @@ function showOverview() {
   propagate();
   hide('screen-duel');
 
+  // ── PAUSE nach Runde 1 (Qualifikation, Index 0) ──
+  if(S.currentRound === 0) {
+    hide('screen-overview'); hide('screen-pause');
+    show('screen-pause-r1');
+    document.getElementById('round-pill').textContent = 'Qualifikation – Abgeschlossen';
+    startCountdown();
+    renderR1PauseAnalysis();
+    return;
+  }
+
   // ── PAUSE nach Runde 2 (Index 1) ──
   if(S.currentRound === 1) {
     show('screen-pause');
-    hide('screen-overview');
-    document.getElementById('top-bar').classList.add('visible');
+    hide('screen-overview'); hide('screen-pause-r1');
     document.getElementById('round-pill').textContent = 'Runde 2 – Abgeschlossen';
     renderPauseAnalysis();
     return;
@@ -785,12 +820,13 @@ function getTop4(){
 }
 
 async function saveSnapshot(){
-  const top4=getTop4(); if(!top4.length) return;
-  const champ=S.rounds[4][0]?.winner?.name||null;
-  // Collect R2 winners for pause analysis
+  const r1picks=S.rounds[0].filter(m=>m.winner).map(m=>m.winner.name);
+  if(!r1picks.length) return; // nothing to save yet
   const r2picks=S.rounds[1].filter(m=>m.winner).map(m=>m.winner.name);
+  const top4=getTop4();
+  const champ=S.rounds[4][0]?.winner?.name||null;
   const key=S.user.replace(/[.#$[\]/]/g,'_');
-  try{ await set(ref(db,'votes/'+key),{name:S.user,top4,champ,r2picks,ts:Date.now()}); }
+  try{ await set(ref(db,'votes/'+key),{name:S.user,r1picks,r2picks,top4,champ,ts:Date.now()}); }
   catch(e){ console.error('Firebase write error:',e); }
 }
 
@@ -863,6 +899,79 @@ async function renderPauseAnalysis() {
     </div>
   </div>`;
   el.innerHTML=html;
+}
+
+// Countdown bis 18. Juni 2026, 00:00 Uhr CEST (UTC+2)
+const R1_DEADLINE = new Date('2026-06-18T00:00:00+02:00');
+let countdownInterval = null;
+
+function startCountdown() {
+  if(countdownInterval) clearInterval(countdownInterval);
+  const el = document.getElementById('countdown-display');
+
+  function update() {
+    const now = new Date();
+    const diff = R1_DEADLINE - now;
+    if(diff <= 0) {
+      el.innerHTML = '<div class="countdown-done">Abstimmungszeit abgelaufen ✓</div>';
+      clearInterval(countdownInterval);
+      return;
+    }
+    const days  = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const mins  = Math.floor((diff % 3600000)  / 60000);
+    const secs  = Math.floor((diff % 60000)    / 1000);
+    const pad   = n => String(n).padStart(2,'0');
+    el.innerHTML = days > 0
+      ? `${days}T ${pad(hours)}:${pad(mins)}:${pad(secs)}<div class="countdown-sub">Tage · Stunden · Minuten · Sekunden</div>`
+      : `${pad(hours)}:${pad(mins)}:${pad(secs)}<div class="countdown-sub">Stunden · Minuten · Sekunden</div>`;
+  }
+  update();
+  countdownInterval = setInterval(update, 1000);
+}
+
+async function renderR1PauseAnalysis() {
+  const el = document.getElementById('pause-r1-analysis');
+  el.innerHTML = '<div class="no-data">Ergebnisse werden geladen…</div>';
+  let voters = [];
+  try {
+    const snap = await get(ref(db,'votes'));
+    if(snap.exists()) voters = Object.values(snap.val());
+  } catch(e) { el.innerHTML='<div class="no-data">Fehler beim Laden.</div>'; return; }
+
+  if(!voters.length) {
+    el.innerHTML='<div class="no-data">Noch keine Abstimmungen vorhanden.</div>';
+    return;
+  }
+
+  // Aggregate R1 picks
+  const fc = {};
+  voters.forEach(v => (v.r1picks||[]).forEach(f => { fc[f]=(fc[f]||0)+1; }));
+  const sorted = Object.entries(fc).sort((a,b)=>b[1]-a[1]);
+  const mx = Math.max(...sorted.map(x=>x[1]),1);
+
+  let html = `<div class="an-section">
+    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:1rem;font-weight:500">
+      Qualifikations-Sieger (${voters.length} Abstimmung${voters.length!==1?'en':''})
+    </h3>
+    ${sorted.length ? sorted.map(([n,c])=>`
+      <div class="bar-row">
+        <div class="bar-label">${n}</div>
+        <div class="bar-track"><div class="bar-fill b" style="width:${Math.round(c/mx*100)}%"></div></div>
+        <div class="bar-ct">${c}×</div>
+      </div>`).join('') : '<div class="no-data">Keine Daten.</div>'}
+  </div>
+  <div class="an-section">
+    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:1rem;font-weight:500">Einzelne Abstimmungen</h3>
+    <div class="voter-grid">
+      ${voters.map(v=>`
+        <div class="voter-card">
+          <h4>${v.name}</h4>
+          <div class="tags">${(v.r1picks||[]).map(f=>`<span class="tag top4">${f}</span>`).join('')}</div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+  el.innerHTML = html;
 }
 
 // ── Expose functions to global scope ──
