@@ -280,6 +280,23 @@ button{font-family:var(--font-b);cursor:pointer}
 .countdown-done{font-size:18px;color:var(--green);font-family:var(--font-d)}
 .countdown-sub{font-size:12px;color:var(--text-muted);margin-top:6px}
 
+/* ── ADMIN PANEL ── */
+#admin-panel{
+  background:var(--surface);border:1px solid rgba(154,122,48,.3);border-radius:var(--rl);
+  padding:1.25rem 1.5rem;margin-bottom:1.5rem;box-shadow:var(--shadow);
+}
+.admin-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gold);margin-bottom:10px;font-weight:500}
+.admin-btn{
+  padding:11px 26px;font-size:14px;font-weight:500;
+  background:var(--gold);color:#fff;border:none;border-radius:var(--r);
+  transition:background .2s;box-shadow:var(--shadow);
+}
+.admin-btn:hover{background:var(--gold-light)}
+.admin-btn:disabled{opacity:.5;pointer-events:none}
+.admin-locked{font-size:13px;color:var(--green);display:flex;align-items:center;gap:6px}
+.admin-winner-list{font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.8}
+.admin-winner-list b{color:var(--text)}
+
 .no-data{color:var(--text-muted);font-size:14px;padding:3rem;text-align:center}
 </style>
 </head>
@@ -363,6 +380,7 @@ button{font-family:var(--font-b);cursor:pointer}
     <div class="countdown-label">Verbleibende Abstimmungszeit</div>
     <div id="countdown-display" class="countdown-digits">--:--:--</div>
   </div>
+  <div id="admin-panel" class="hidden"></div>
   <div id="pause-r1-analysis"></div>
 </div>
 
@@ -424,6 +442,9 @@ const db = getDatabase(firebaseApp);
 // ══════════════════════════════════════════════════
 const TMDB_KEY = '7694829fecb8fa5a4d3c328e0251374b';
 
+// Admin-Zugang: URL mit ?admin=1 aufrufen, um das Freischalt-Panel zu sehen
+const isAdmin = new URLSearchParams(window.location.search).get('admin') === '1';
+
 const FILMS = [
   // ── Byes (Seeds 1–8): direkt in Runde 2 ──
   // Links im Bracket (r2[0–3])
@@ -462,19 +483,36 @@ const ROUND_NAMES = ['Qualifikation','Runde 2','Viertelfinale','Halbfinale','Fin
 
 const S = {
   user:'', rounds:[], currentRound:0, currentMatch:0,
-  selectedSide:null, posterCache:{},
+  selectedSide:null, posterCache:{}, skippedR1:false,
 };
+
+function findFilm(name){ return FILMS.find(f=>f.name===name) || {name, seed:'', spotify:''}; }
 
 // ══════════════════════════════════════════════════
 // BRACKET BUILD
 // ══════════════════════════════════════════════════
-function buildBracket() {
+// officialR2Winners: optional array of 8 names (Qualifikations-Mehrheitsergebnis).
+// Wenn vorhanden, wird Runde 1 übersprungen und Runde 2 direkt mit dem
+// offiziellen Gesamtergebnis befüllt (statt mit der individuellen Auswahl).
+function buildBracket(officialR2Winners) {
   const direct = FILMS.slice(0,8);
   const qualif = FILMS.slice(8);
   const r1 = [];
   for(let i=0;i<qualif.length;i+=2)
     r1.push({a:qualif[i],b:qualif[i+1],winner:null});
-  const r2 = direct.map((team,i)=>({a:team,b:null,r1Idx:i,winner:null}));
+
+  let r2;
+  if (officialR2Winners) {
+    r2 = direct.map((team,i)=>({
+      a:team, b:findFilm(officialR2Winners[i]), r1Idx:i, winner:null
+    }));
+    // R1 Matches als "offiziell entschieden" markieren, damit die Bracket-
+    // Übersicht später korrekt anzeigt, wer gewonnen hat.
+    r1.forEach((m,i)=>{ m.winner = findFilm(officialR2Winners[i]); m.official = true; });
+  } else {
+    r2 = direct.map((team,i)=>({a:team,b:null,r1Idx:i,winner:null}));
+  }
+
   const r3 = Array.from({length:4},()=>({a:null,b:null,winner:null}));
   const r4 = Array.from({length:2},()=>({a:null,b:null,winner:null}));
   const r5 = [{a:null,b:null,winner:null}];
@@ -492,13 +530,28 @@ function propagate() {
 // ══════════════════════════════════════════════════
 // DUEL FLOW
 // ══════════════════════════════════════════════════
-function startGame(userName) {
+async function startGame(userName) {
   S.user=userName;
   document.getElementById('user-pill').textContent='👤 '+userName;
   document.getElementById('top-bar').classList.add('visible');
   document.getElementById('screen-login').classList.add('hidden');
-  buildBracket();
-  S.currentRound=0; S.currentMatch=0;
+
+  // Prüfen, ob Runde 2 bereits offiziell freigeschaltet wurde
+  let official = null;
+  try {
+    const snap = await get(ref(db,'official/round2'));
+    if (snap.exists()) official = snap.val();
+  } catch(e) { /* ignore, fallback zu normaler Runde 1 */ }
+
+  if (official && official.winners) {
+    buildBracket(official.winners);
+    S.skippedR1 = true;
+    S.currentRound = 1; S.currentMatch = 0;
+  } else {
+    buildBracket();
+    S.skippedR1 = false;
+    S.currentRound = 0; S.currentMatch = 0;
+  }
   showDuel();
 }
 
@@ -820,9 +873,10 @@ function getTop4(){
 }
 
 async function saveSnapshot(){
-  const r1picks=S.rounds[0].filter(m=>m.winner).map(m=>m.winner.name);
-  if(!r1picks.length) return; // nothing to save yet
+  // Nur eigene (nicht offiziell vorausgefüllte) Entscheidungen zählen als persönliche Stimme
+  const r1picks=S.rounds[0].filter(m=>m.winner && !m.official).map(m=>m.winner.name);
   const r2picks=S.rounds[1].filter(m=>m.winner).map(m=>m.winner.name);
+  if(!r1picks.length && !r2picks.length) return; // noch nichts zu speichern
   const top4=getTop4();
   const champ=S.rounds[4][0]?.winner?.name||null;
   const key=S.user.replace(/[.#$[\]/]/g,'_');
@@ -902,7 +956,7 @@ async function renderPauseAnalysis() {
 }
 
 // Countdown bis 18. Juni 2026, 00:00 Uhr CEST (UTC+2)
-const R1_DEADLINE = new Date('2026-06-18T00:00:00+02:00');
+const R1_DEADLINE = new Date('2026-06-28T00:00:00+02:00');
 let countdownInterval = null;
 
 function startCountdown() {
@@ -939,6 +993,8 @@ async function renderR1PauseAnalysis() {
     if(snap.exists()) voters = Object.values(snap.val());
   } catch(e) { el.innerHTML='<div class="no-data">Fehler beim Laden.</div>'; return; }
 
+  if (isAdmin) renderAdminPanel(voters);
+
   if(!voters.length) {
     el.innerHTML='<div class="no-data">Noch keine Abstimmungen vorhanden.</div>';
     return;
@@ -972,6 +1028,74 @@ async function renderR1PauseAnalysis() {
     </div>
   </div>`;
   el.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════
+// ADMIN: Runde 2 per Mehrheitsergebnis freischalten
+// ══════════════════════════════════════════════════
+function computeMajorityWinners(voters) {
+  // Für jedes der 8 Qualifikationsmatches: Stimmen pro Kandidat zählen,
+  // basierend auf der Position des Picks (r1picks[i] gehört zu Match i).
+  const qualifMatches = (() => {
+    const qualif = FILMS.slice(8);
+    const matches = [];
+    for(let i=0;i<qualif.length;i+=2) matches.push([qualif[i].name, qualif[i+1].name]);
+    return matches;
+  })();
+
+  return qualifMatches.map(([nameA,nameB], idx) => {
+    let countA=0, countB=0;
+    voters.forEach(v => {
+      const pick = (v.r1picks||[])[idx];
+      if(pick===nameA) countA++;
+      else if(pick===nameB) countB++;
+    });
+    return countB > countA ? nameB : nameA; // Gleichstand → nameA gewinnt
+  });
+}
+
+async function renderAdminPanel(voters) {
+  const panel = document.getElementById('admin-panel');
+  panel.classList.remove('hidden');
+
+  let already = null;
+  try {
+    const snap = await get(ref(db,'official/round2'));
+    if(snap.exists()) already = snap.val();
+  } catch(e) {}
+
+  if (already) {
+    panel.innerHTML = `
+      <div class="admin-label">🔐 Admin</div>
+      <div class="admin-locked">✅ Runde 2 ist freigeschaltet</div>
+      <div class="admin-winner-list">
+        ${already.winners.map((w,i)=>`Match ${i+1}: <b>${w}</b>`).join('<br>')}
+      </div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="admin-label">🔐 Admin</div>
+    <button class="admin-btn" id="lock-btn">Runde 2 jetzt freischalten (Mehrheitsergebnis)</button>
+    <div class="admin-winner-list" id="lock-status"></div>`;
+  document.getElementById('lock-btn').onclick = () => lockInRound2(voters);
+}
+
+async function lockInRound2(voters) {
+  const btn = document.getElementById('lock-btn');
+  const status = document.getElementById('lock-status');
+  btn.disabled = true;
+  status.textContent = 'Wird berechnet…';
+
+  const winners = computeMajorityWinners(voters);
+  try {
+    await set(ref(db,'official/round2'), { winners, ts: Date.now() });
+    status.innerHTML = '✅ Runde 2 freigeschaltet:<br>' + winners.map((w,i)=>`Match ${i+1}: <b>${w}</b>`).join('<br>');
+    btn.remove();
+  } catch(e) {
+    status.textContent = 'Fehler beim Speichern.';
+    btn.disabled = false;
+  }
 }
 
 // ── Expose functions to global scope ──
