@@ -385,12 +385,12 @@ button{font-family:var(--font-b);cursor:pointer}
 </div>
 
 <!-- PAUSE R2 -->
+<div id="screen-pause" class="hidden">
   <div class="pause-hero">
-    <div class="pause-icon">⏸</div>
-    <h2>Runde 2 abgeschlossen</h2>
-    <p>Die Abstimmung ist pausiert. Die Ergebnisse werden ausgewertet und das Viertelfinale-Bracket in Kürze bekanntgegeben.</p>
+    <div class="pause-icon">🙌</div>
+    <h2>Danke für deine Teilnahme!</h2>
+    <p>Die Ergebnisse der zweiten Runde gibt es in wenigen Tagen für euch zur Info!</p>
   </div>
-  <div id="pause-analysis"></div>
 </div>
 
 <!-- OVERVIEW -->
@@ -481,9 +481,29 @@ const FILMS = [
 
 const ROUND_NAMES = ['Qualifikation','Runde 2','Viertelfinale','Halbfinale','Finale'];
 
+// ══════════════════════════════════════════════════
+// R1-ERGEBNISSE (Community-Abstimmung, hardcoded)
+// ══════════════════════════════════════════════════
+const R1_RESULTS = [
+  { winner:'Fluch der Karibik – Teil 3',               pct:59.5 },
+  { winner:'Herr der Ringe – Die Rückkehr des Königs',  pct:54.8 },
+  { winner:'Libertango',                                pct:52.4 },
+  { winner:'Downton Abbey',                             pct:73.8 },
+  { winner:'Harry Potter und der Orden des Phönix',     pct:64.3 },
+  { winner:'Charlie und die Schokoladenfabrik',         pct:61.9 },
+  { winner:'Star Wars Through The Years',               pct:71.4 },
+  { winner:'Go West',                                   pct:54.8 },
+];
+const R1_OFFICIAL_WINNERS = R1_RESULTS.map(r=>r.winner);
+const QUALIF_LABELS = (()=>{
+  const q=FILMS.slice(8), labels=[];
+  for(let i=0;i<q.length;i+=2) labels.push(q[i].name+' vs. '+q[i+1].name);
+  return labels;
+})();
+
 const S = {
   user:'', rounds:[], currentRound:0, currentMatch:0,
-  selectedSide:null, posterCache:{}, skippedR1:false,
+  selectedSide:null, posterCache:{}, skippedR1:false, showingR1Overview:false,
 };
 
 function findFilm(name){ return FILMS.find(f=>f.name===name) || {name, seed:'', spotify:''}; }
@@ -536,23 +556,94 @@ async function startGame(userName) {
   document.getElementById('top-bar').classList.add('visible');
   document.getElementById('screen-login').classList.add('hidden');
 
-  // Prüfen, ob Runde 2 bereits offiziell freigeschaltet wurde
-  let official = null;
-  try {
-    const snap = await get(ref(db,'official/round2'));
-    if (snap.exists()) official = snap.val();
-  } catch(e) { /* ignore, fallback zu normaler Runde 1 */ }
+  // Qualifikation ist entschieden (Community-Abstimmung) – Runde 2 direkt mit den
+  // hardcoded Ergebnissen befüllen. Vor Runde 2 sehen alle erst die R1-Übersicht.
+  buildBracket(R1_OFFICIAL_WINNERS);
+  S.skippedR1 = true;
+  S.currentRound = 0; S.currentMatch = 0;
+  showR1ResultsScreen();
+}
 
-  if (official && official.winners) {
-    buildBracket(official.winners);
-    S.skippedR1 = true;
-    S.currentRound = 1; S.currentMatch = 0;
+// ══════════════════════════════════════════════════
+// R1-ÜBERSICHT (Foto-Bracket + Analyse) vor Runde 2
+// ══════════════════════════════════════════════════
+function showR1ResultsScreen() {
+  propagate();
+  S.showingR1Overview = true;
+  hide('screen-duel'); hide('screen-pause-r1'); hide('screen-pause');
+  show('screen-overview');
+
+  document.getElementById('round-pill').textContent='Qualifikation – Ergebnis';
+  document.getElementById('overview-title').textContent='Qualifikation – Ergebnis';
+  document.getElementById('overview-sub').textContent='Runde 2 aktiv. Die Abstimmung läuft!';
+  document.getElementById('champion-section').classList.add('hidden');
+
+  const bc=document.getElementById('btn-continue');
+  bc.classList.remove('hidden');
+  bc.textContent='Weiter: Runde 2 →';
+
+  renderPhotoBracket();
+  switchView('bracket',document.querySelector('.vnav-btn'));
+}
+
+async function renderR1Analysis() {
+  const el=document.getElementById('analysis-content');
+  el.innerHTML='<div class="no-data">Daten werden geladen…</div>';
+  let voters=[];
+  try{
+    const snap=await get(ref(db,'votes'));
+    if(snap.exists()) voters=Object.values(snap.val());
+  }catch(e){ el.innerHTML='<div class="no-data">Fehler beim Laden.</div>'; return; }
+
+  const me=voters.find(v=>v.name===S.user);
+  let html=`<div class="an-section">
+    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:1rem;font-weight:500">Deine Abstimmung in der Qualifikation</h3>`;
+
+  if(me && me.r1picks && me.r1picks.length){
+    const correct=me.r1picks.filter((p,i)=>p===R1_OFFICIAL_WINNERS[i]).length;
+    html+=`<p style="font-size:14px;color:var(--text-muted);margin-bottom:1rem">
+      Du lagst bei <b style="color:var(--text)">${correct} von ${me.r1picks.length}</b> Duellen auf Seiten der Mehrheit.</p>
+      <div class="voter-grid" style="grid-template-columns:1fr">`;
+    html+=me.r1picks.map((pick,i)=>{
+      const hit=pick===R1_OFFICIAL_WINNERS[i];
+      const result=R1_RESULTS[i];
+      return `<div class="voter-card">
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">${QUALIF_LABELS[i]}</div>
+        <div style="font-size:13px;${hit?'color:var(--green)':'color:var(--text-dim)'}">
+          ${hit?'✓ Deine Wahl gewann':'✗ Deine Wahl unterlag'} – Sieger: <b style="color:var(--text)">${result.winner}</b> (${result.pct.toString().replace('.',',')}%)
+        </div>
+      </div>`;
+    }).join('');
+    html+='</div>';
   } else {
-    buildBracket();
-    S.skippedR1 = false;
-    S.currentRound = 0; S.currentMatch = 0;
+    html+='<div class="no-data">Keine gespeicherte Abstimmung von dir für die Qualifikation gefunden.</div>';
   }
-  showDuel();
+  html+='</div>';
+
+  if(isAdmin){
+    const fc={};
+    voters.forEach(v=>(v.r1picks||[]).forEach(f=>{fc[f]=(fc[f]||0)+1}));
+    const sorted=Object.entries(fc).sort((a,b)=>b[1]-a[1]);
+    const mx=Math.max(...sorted.map(x=>x[1]),1);
+    html+=`<div class="an-section">
+      <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gold);margin-bottom:1rem;font-weight:500">🔐 Gesamtauswertung (Admin) – ${voters.length} Teilnehmer</h3>
+      ${sorted.length?sorted.map(([n,c])=>`
+        <div class="bar-row">
+          <div class="bar-label">${n}</div>
+          <div class="bar-track"><div class="bar-fill b" style="width:${Math.round(c/mx*100)}%"></div></div>
+          <div class="bar-ct">${c}×</div>
+        </div>`).join(''):'<div class="no-data">Keine Daten.</div>'}
+    </div>
+    <div class="an-section">
+      <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:1rem;font-weight:500">🔐 Einzelne Abstimmungen (Admin)</h3>
+      <div class="voter-grid">
+        ${voters.map(v=>`<div class="voter-card"><h4>${v.name}</h4>
+          <div class="tags">${(v.r1picks||[]).map(f=>`<span class="tag top4">${f}</span>`).join('')}</div></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  el.innerHTML=html;
 }
 
 function showDuel() {
@@ -560,7 +651,7 @@ function showDuel() {
   const total=S.rounds[S.currentRound].length;
 
   document.getElementById('round-pill').textContent=
-    ROUND_NAMES[S.currentRound]+' · '+(S.currentMatch+1)+' / '+total;
+    S.currentRound===1 ? 'Runde 2 gerade aktiv' : ROUND_NAMES[S.currentRound]+' · '+(S.currentMatch+1)+' / '+total;
 
   // Only show round label for Qualifikation (round 0)
   const metaLabel=document.getElementById('duel-meta-label');
@@ -642,6 +733,12 @@ function confirmVote() {
 }
 
 function continueToNext() {
+  if (S.showingR1Overview) {
+    S.showingR1Overview = false;
+    S.currentRound = 1; S.currentMatch = 0;
+    showDuel();
+    return;
+  }
   const next=S.currentRound+1;
   if(next>=S.rounds.length) return;
   S.currentRound=next; S.currentMatch=0;
@@ -670,7 +767,6 @@ function showOverview() {
     show('screen-pause');
     hide('screen-overview'); hide('screen-pause-r1');
     document.getElementById('round-pill').textContent = 'Runde 2 – Abgeschlossen';
-    renderPauseAnalysis();
     return;
   }
 
@@ -845,7 +941,7 @@ function switchView(view,btn){
   const bv=document.getElementById('view-bracket');
   const av=document.getElementById('view-analysis');
   if(view==='bracket'){show(bv);hide(av);}
-  else{hide(bv);show(av);renderAnalysis();}
+  else{hide(bv);show(av); S.showingR1Overview?renderR1Analysis():renderAnalysis();}
 }
 
 // ══════════════════════════════════════════════════
@@ -904,56 +1000,6 @@ function closePreview() {
 
 function show(el){(typeof el==='string'?document.getElementById(el):el)?.classList.remove('hidden')}
 function hide(el){(typeof el==='string'?document.getElementById(el):el)?.classList.add('hidden')}
-
-async function renderPauseAnalysis() {
-  const el=document.getElementById('pause-analysis');
-  el.innerHTML='<div class="no-data">Ergebnisse werden geladen…</div>';
-  let voters=[];
-  try{
-    const snap=await get(ref(db,'votes'));
-    if(snap.exists()) voters=Object.values(snap.val());
-  }catch(e){ el.innerHTML='<div class="no-data">Fehler beim Laden.</div>'; return; }
-  if(!voters.length){
-    el.innerHTML='<div class="no-data">Noch keine abgeschlossenen Abstimmungen vorhanden.</div>';
-    return;
-  }
-
-  // Count R2 winners per voter (we store top4 = SF participants, but for R2 pause
-  // we look at which teams were voted through R2 by each voter)
-  const r2winners = {};
-  voters.forEach(v=>{
-    // R2 winners are stored in top4 (set after SF qualification) — but at pause point
-    // we look at what each voter's round 2 picks were via their bracket state.
-    // Since we save after each round completes, the r2 picks are in top4 if SF is reached,
-    // but at pause we just show aggregate vote counts per film overall.
-    (v.top4||[]).forEach(f=>{r2winners[f]=(r2winners[f]||0)+1});
-    if(v.r2picks) v.r2picks.forEach(f=>{r2winners[f]=(r2winners[f]||0)+1});
-  });
-
-  const sorted=Object.entries(r2winners).sort((a,b)=>b[1]-a[1]);
-  const mx=Math.max(...sorted.map(x=>x[1]),1);
-
-  let html=`<div class="an-section" style="margin-bottom:2rem">
-    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:1rem;font-weight:500">
-      Bisherige Abstimmungen (${voters.length} Teilnehmer)
-    </h3>
-    ${sorted.length ? sorted.map(([n,c])=>`
-      <div class="bar-row">
-        <div class="bar-label">${n}</div>
-        <div class="bar-track"><div class="bar-fill b" style="width:${Math.round(c/mx*100)}%"></div></div>
-        <div class="bar-ct">${c}×</div>
-      </div>`).join('') : '<div class="no-data">Noch keine vollständigen Abstimmungen.</div>'}
-  </div>
-  <div class="an-section">
-    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:1rem;font-weight:500">Einzelne Teilnehmer</h3>
-    <div class="voter-grid">
-      ${voters.map(v=>`<div class="voter-card"><h4>${v.name}</h4>
-        <div class="tags">${(v.top4||[]).map(f=>`<span class="tag top4">${f}</span>`).join('')}
-        ${v.champ?`<span class="tag champ">🏆 ${v.champ}</span>`:''}</div></div>`).join('')}
-    </div>
-  </div>`;
-  el.innerHTML=html;
-}
 
 // Countdown bis 10. Juli 2026, 00:00 Uhr CEST (UTC+2)
 const R1_DEADLINE = new Date('2026-07-10T00:00:00+02:00');
